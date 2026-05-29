@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claude Code 远程控制</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui; background: #0f0f0f; color: #e0e0e0; padding: 16px; padding-top: 0; }
+    h1 { font-size: 18px; color: #fff; }
+
+    /* 吸顶容器 */
+    .sticky-header {
+      position: sticky; top: 0; z-index: 50;
+      background: #0f0f0f; padding: 16px 0 0 0;
+      padding-bottom: 0;
+    }
+    .sticky-header::after {
+      content: ''; display: block; height: 1px;
+      background: linear-gradient(to right, transparent, #333, transparent);
+    }
+    #login { background: #1a1a1a; border-radius: 12px; padding: 20px; margin-top: 16px; }
+    #main { display: none; }
+    input, textarea, select {
+      width: 100%; background: #222; border: 1px solid #333; color: #e0e0e0;
+      border-radius: 8px; padding: 10px 12px; font-size: 15px; margin-bottom: 10px;
+    }
+    textarea { height: 100px; resize: vertical; }
+    .btn-row { display: flex; gap: 10px; margin-bottom: 10px; }
+    button {
+      flex: 1; background: #D85A30; color: #fff; border: none;
+      border-radius: 8px; padding: 12px; font-size: 16px; font-weight: 500; cursor: pointer;
+    }
+    button:active { opacity: 0.8; }
+    button.stop { background: #555; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    #output {
+      background: #0a0e11; border: 1px solid #1a2a1f; border-radius: 8px;
+      padding: 14px; margin-top: 12px; min-height: 200px;
+      font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
+      font-size: 13px; line-height: 1.6; white-space: pre-wrap;
+      word-break: break-all; max-height: 60vh; overflow-y: auto;
+      color: #b8d4a3; text-shadow: 0 0 6px rgba(120, 200, 80, 0.15);
+      box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.4);
+    }
+    #output::-webkit-scrollbar { width: 4px; }
+    #output::-webkit-scrollbar-track { background: transparent; }
+    #output::-webkit-scrollbar-thumb { background: #2a3a2f; border-radius: 4px; }
+    .label { font-size: 12px; color: #888; margin-bottom: 4px; }
+    .err { color: #ff9e64; text-shadow: 0 0 4px rgba(255, 158, 100, 0.2); }
+    .done { color: #c3e88d; font-weight: bold; text-shadow: 0 0 6px rgba(195, 232, 141, 0.3); }
+    .status { font-size: 12px; margin-top: 8px; color: #888; }
+    .status.running { color: #fbbf24; }
+
+    /* 标签页 */
+    .tabs { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 1px solid #333; }
+    .tab {
+      flex: 1; text-align: center; padding: 10px; font-size: 15px; cursor: pointer;
+      color: #888; border-bottom: 2px solid transparent; transition: all 0.2s;
+    }
+    .tab.active { color: #D85A30; border-bottom-color: #D85A30; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; padding-top: 4px; }
+
+    /* 列表通用 */
+    .list-item {
+      background: #1a1a1a; border: 1px solid #333; border-radius: 8px;
+      padding: 10px 12px; margin-bottom: 8px; cursor: pointer; transition: border-color 0.2s;
+      position: relative;
+    }
+    .list-item:hover, .list-item.active { border-color: #D85A30; }
+    .list-item .item-title { font-size: 14px; color: #e0e0e0; font-weight: 500; }
+    .list-item .item-sub { font-size: 12px; color: #888; margin-top: 4px; }
+    .list-loading { color: #888; text-align: center; padding: 40px 0; }
+    .btn-back {
+      display: inline-block; background: #333; color: #e0e0e0; border: none;
+      border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer;
+      margin-bottom: 10px; flex: none;
+    }
+    .detail-content {
+      background: #0a0e11; border: 1px solid #1a2a1f; border-radius: 8px;
+      padding: 14px; font-size: 13px; line-height: 1.6; white-space: pre-wrap;
+      word-break: break-all; max-height: 60vh; overflow-y: auto;
+      min-height: 150px; color: #b8d4a3;
+      font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
+      box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.4);
+    }
+    .btn-delete {
+      background: #333; color: #f87171; border: none;
+      border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+      position: absolute; right: 10px; top: 10px;
+    }
+    .btn-reuse {
+      display: inline-block; background: #D85A30; color: #fff; border: none;
+      border-radius: 6px; padding: 8px 16px; font-size: 13px; cursor: pointer;
+      margin-top: 10px; margin-right: 8px;
+    }
+
+    /* 工作目录行 */
+    .workdir-row { display: flex; gap: 8px; margin-bottom: 10px; align-items: center; }
+    .workdir-row input { flex: 1; margin-bottom: 0; }
+    .btn-browse {
+      background: #333; color: #e0e0e0; border: none;
+      border-radius: 8px; padding: 10px 14px; font-size: 14px; cursor: pointer;
+      white-space: nowrap;
+    }
+
+    /* 文件浏览器 */
+    .file-modal {
+      display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.85); z-index: 100; padding: 12px;
+      overflow-y: auto; -webkit-overflow-scrolling: touch;
+    }
+    .file-modal.show { display: block; }
+    .file-modal-inner {
+      background: #1a1a1a; border-radius: 16px; padding: 16px;
+      max-width: 500px; margin: 10px auto;
+    }
+    .file-path {
+      font-size: 12px; color: #D85A30; margin-bottom: 10px;
+      word-break: break-all; padding: 8px 10px; background: #111; border-radius: 8px;
+    }
+
+    /* 盘符快捷栏 */
+    .drive-bar {
+      display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;
+    }
+    .drive-chip {
+      display: inline-flex; align-items: center; justify-content: center;
+      background: #252525; border: 1px solid #3a3a3a; border-radius: 20px;
+      padding: 8px 18px; font-size: 14px; font-weight: 500; color: #60a5fa;
+      cursor: pointer; transition: all 0.2s; user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .drive-chip:active { transform: scale(0.95); }
+    .drive-chip.active {
+      background: #D85A30; border-color: #D85A30; color: #fff;
+    }
+
+    /* 返回上级按钮 */
+    .file-back-btn {
+      display: flex; align-items: center; justify-content: space-between;
+      background: #252525; border: 1px solid #3a3a3a; border-radius: 10px;
+      padding: 12px 14px; margin-bottom: 10px; cursor: pointer;
+      font-size: 15px; font-weight: 500; color: #e0e0e0;
+      -webkit-tap-highlight-color: transparent; user-select: none;
+    }
+    .file-back-btn:active { background: #333; }
+    .file-back-path { font-size: 11px; color: #888; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* 文件列表项 */
+    .file-item {
+      display: flex; align-items: center; padding: 14px 12px;
+      border-bottom: 1px solid #1f1f1f; cursor: pointer; font-size: 15px;
+      border-radius: 8px; margin-bottom: 4px; transition: background 0.15s;
+      -webkit-tap-highlight-color: transparent; user-select: none;
+      overflow: hidden;
+    }
+    .file-item:active { background: #2a2a2a; }
+    .file-item .file-icon { margin-right: 12px; font-size: 20px; flex-shrink: 0; }
+    .file-item .file-name { flex: 1; color: #e0e0e0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .file-item .file-meta { font-size: 11px; color: #666; margin-left: 8px; flex-shrink: 0; white-space: nowrap; }
+
+    /* 盘符项 */
+    .file-item.is-drive { background: #1a2332; }
+    .file-item.is-drive .file-name { color: #60a5fa; font-weight: 600; }
+
+    /* 文件夹项 */
+    .file-item.is-dir { background: #1c2a1f; }
+    .file-item.is-dir .file-name { color: #86efac; }
+
+    /* 普通文件项 */
+    .file-item.is-file { background: transparent; cursor: default; }
+    .file-item.is-file:active { background: transparent; }
+
+    /* 极速模式 */
+    .speed-row {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+    }
+    .speed-row label {
+      font-size: 13px; color: #888; cursor: pointer; user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .speed-row input[type="checkbox"] {
+      width: 16px; height: 16px; margin: 0; accent-color: #D85A30;
+    }
+
+    /* 复制按钮 */
+    .output-wrapper { position: relative; }
+    .btn-copy {
+      position: absolute; top: 8px; right: 8px;
+      background: rgba(255,255,255,0.08); border: 1px solid #333;
+      border-radius: 6px; padding: 4px 10px; font-size: 12px;
+      color: #aaa; cursor: pointer; z-index: 5;
+      -webkit-tap-highlight-color: transparent; user-select: none;
+      transition: all 0.15s;
+    }
+    .btn-copy:active { background: rgba(255,255,255,0.15); color: #fff; }
+    .btn-copy.copied { color: #86efac; border-color: #86efac; }
+
+    .btn-send-file {
+      background: #D85A30; color: #fff; border: none;
+      border-radius: 6px; padding: 5px 10px; font-size: 11px;
+      cursor: pointer; margin-left: 6px; flex-shrink: 0;
+      -webkit-tap-highlight-color: transparent;
+      min-height: 32px; display: flex; align-items: center; gap: 3px;
+    }
+    .btn-set-workspace {
+      background: #1a3a2a; color: #86efac; border: 1px solid #2a5a3a;
+      border-radius: 6px; padding: 5px 10px; font-size: 11px;
+      cursor: pointer; margin-left: 6px; flex-shrink: 0;
+      -webkit-tap-highlight-color: transparent;
+      min-height: 32px; display: flex; align-items: center; gap: 3px;
+      transition: background 0.15s;
+    }
+    .btn-set-workspace:active { background: #2a5a3a; }
+
+    .file-actions { display: flex; gap: 8px; margin-top: 12px; }
+    .file-actions button { flex: 1; }
+    .btn-select-dir { background: #D85A30; }
+    .btn-close-modal { background: #333; }
+  </style>
+</head>
+<body>
+  <div class="sticky-header">
+    <h1>Claude Code 远程</h1>
+  </div>
+
+  <div id="login">
+    <div class="label">访问密码</div>
+    <input type="password" id="pwd" placeholder="输入你设置的密码">
+    <button onclick="doLogin()">登录</button>
+  </div>
+
+  <div id="main">
+    <div class="sticky-header" id="navBar">
+      <div class="tabs">
+        <div class="tab active" onclick="switchTab('cmd')">命令</div>
+        <div class="tab" onclick="switchTab('his')">历史</div>
+        <div class="tab" onclick="switchTab('mem')">记忆</div>
+      </div>
+    </div>
+
+    <!-- 命令面板 -->
+    <div id="panel-cmd" class="tab-panel active">
+      <div class="label">工作目录（可选）</div>
+      <div class="workdir-row">
+        <input type="text" id="workdir" placeholder="留空则用默认目录">
+        <button class="btn-browse" onclick="openFileBrowser()">浏览</button>
+      </div>
+
+      <div class="label">指令</div>
+      <textarea id="prompt" placeholder="帮我写一个 Python 爬虫...&#10;重构 src/utils.js...&#10;分析这个项目的结构..."></textarea>
+
+      <div class="speed-row">
+        <label><input type="checkbox" id="speedMode"> 极速/省Token模式</label>
+      </div>
+
+      <div class="btn-row">
+        <button id="btnRun" onclick="runCommand()">发送给 Claude Code</button>
+        <button id="btnStop" class="stop" onclick="stopCommand()" disabled>停止</button>
+      </div>
+
+      <div id="status" class="status">等待指令...</div>
+      <div class="output-wrapper">
+        <button id="btnCopy" class="btn-copy" onclick="copyOutput()" style="display:none;">📋 复制</button>
+        <div id="output"></div>
+      </div>
+    </div>
+
+    <!-- 历史面板 -->
+    <div id="panel-his" class="tab-panel">
+      <div id="hisListView">
+        <div class="label" style="margin-bottom:8px;">对话历史</div>
+        <div id="hisList" class="mem-list">
+          <div class="list-loading">加载中...</div>
+        </div>
+      </div>
+      <div id="hisDetailView" style="display:none;">
+        <button class="btn-back" onclick="showHisList()">返回列表</button>
+        <div id="hisDetailPrompt" class="label" style="margin-bottom:8px;"></div>
+        <button class="btn-reuse" onclick="reuseCommand()">重新发送</button>
+        <div id="hisContent" class="detail-content"></div>
+      </div>
+    </div>
+
+    <!-- 记忆面板 -->
+    <div id="panel-mem" class="tab-panel">
+      <div id="memListView">
+        <div class="label" style="margin-bottom:8px;">记忆文件列表</div>
+        <div id="memList" class="mem-list">
+          <div class="list-loading">加载中...</div>
+        </div>
+      </div>
+      <div id="memDetailView" style="display:none;">
+        <button class="btn-back" onclick="showMemList()">返回列表</button>
+        <div id="memFileName" class="label" style="margin-bottom:8px;"></div>
+        <div id="memContent" class="detail-content"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 文件浏览器弹窗 -->
+  <div id="fileModal" class="file-modal">
+    <div class="file-modal-inner">
+      <div class="label">选择工作目录</div>
+      <div id="filePath" class="file-path"></div>
+      <div id="fileList"></div>
+      <div class="file-actions">
+        <button class="btn-close-modal" onclick="closeFileBrowser()">取消</button>
+        <button class="btn-select-dir" onclick="selectCurrentDir()">选择此目录</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let token = '';
+    let isRunning = false;
+    let currentHisItem = null;
+    let currentBrowsePath = '';
+
+    // 登录
+    function doLogin() {
+      token = document.getElementById('pwd').value;
+      document.getElementById('login').style.display = 'none';
+      document.getElementById('main').style.display = 'block';
+      loadHistoryList();
+    }
+
+    // 标签切换
+    function switchTab(name) {
+      const tabs = document.querySelectorAll('.tab');
+      const panels = ['cmd', 'his', 'mem'];
+      tabs.forEach((t, i) => t.classList.toggle('active', panels[i] === name));
+      panels.forEach(p => document.getElementById('panel-' + p).classList.toggle('active', p === name));
+      if (name === 'his') loadHistoryList();
+      if (name === 'mem') loadMemoryList();
+    }
+
+    // 状态
+    function setStatus(text, running) {
+      const el = document.getElementById('status');
+      el.textContent = text;
+      el.className = 'status' + (running ? ' running' : '');
+      isRunning = running;
+      const btnRun = document.getElementById('btnRun');
+      btnRun.disabled = running;
+      btnRun.textContent = running ? 'AI思考中...' : '发送给 Claude Code';
+      document.getElementById('btnStop').disabled = !running;
+      if (!running) document.getElementById('btnCopy').style.display = 'block';
+    }
+
+    // ========== 文件浏览器 ==========
+    async function openFileBrowser() {
+      document.getElementById('fileModal').classList.add('show');
+      const current = document.getElementById('workdir').value.trim();
+      await loadFiles(current || '');
+    }
+
+    function closeFileBrowser() {
+      document.getElementById('fileModal').classList.remove('show');
+    }
+
+    async function loadFiles(dirPath) {
+      const list = document.getElementById('fileList');
+      list.innerHTML = '<div class="list-loading">加载中...</div>';
+      try {
+        const url = dirPath ? `/api/files?path=${encodeURIComponent(dirPath)}` : '/api/files';
+        const res = await fetch(url, { headers: { 'x-token': token } });
+        const data = await res.json();
+        if (data.error) {
+          list.innerHTML = `<div class="list-loading">${escapeHtml(data.error)}</div>`;
+          return;
+        }
+        currentBrowsePath = data.current;
+        document.getElementById('filePath').textContent = data.current;
+
+        // 盘符快捷栏
+        let html = '<div class="drive-bar" id="driveBar"></div>';
+
+        // 返回上级按钮
+        if (data.parent) {
+          const parentTarget = data.parent === 'DRIVES' ? '' : escapeAttr(data.parent);
+          html += `<div class="file-back-btn" onclick="loadFiles('${parentTarget}')">
+            <span>⬆️ 返回上级</span>
+            <span class="file-back-path">${escapeHtml(data.parent === 'DRIVES' ? '选择盘符' : data.parent)}</span>
+          </div>`;
+        }
+
+        for (const item of data.items) {
+          const itemPath = escapeAttr(item.path);
+          const mtimeStr = item.mtime ? timeAgo(item.mtime) : '';
+          if (item.type === 'drive') {
+            html += `<div class="file-item is-drive" onclick="loadFiles('${itemPath}')">
+              <span class="file-icon">💾</span>
+              <span class="file-name">${escapeHtml(item.name)}</span>
+              <span class="file-meta">本地磁盘</span>
+            </div>`;
+          } else if (item.type === 'dir') {
+            html += `<div class="file-item is-dir" onclick="loadFiles('${itemPath}')">
+              <span class="file-icon">📂</span>
+              <span class="file-name">${escapeHtml(item.name)}</span>
+              <span class="file-meta">${mtimeStr}</span>
+              <button class="btn-set-workspace" onclick="event.stopPropagation();setAsWorkspace('${itemPath}')">🎯 工作区</button>
+            </div>`;
+          } else {
+            const size = formatSize(item.size);
+            html += `<div class="file-item is-file">
+              <span class="file-icon">📄</span>
+              <span class="file-name">${escapeHtml(item.name)}</span>
+              <span class="file-meta">${size} · ${mtimeStr}</span>
+              <button class="btn-send-file" onclick="event.stopPropagation();copyFilePath('${itemPath}')">📋 路径</button>
+            </div>`;
+          }
+        }
+        if (!data.items.length) html += '<div class="list-loading">空目录</div>';
+        list.innerHTML = html;
+
+        // 渲染盘符栏
+        loadDriveBar(data.current);
+      } catch (e) {
+        list.innerHTML = `<div class="list-loading">加载失败: ${escapeHtml(e.message)}</div>`;
+      }
+    }
+
+    // 加载盘符快捷栏
+    async function loadDriveBar(currentPath) {
+      const bar = document.getElementById('driveBar');
+      if (!bar) return;
+      try {
+        const res = await fetch('/api/files?path=DRIVES', { headers: { 'x-token': token } });
+        const data = await res.json();
+        if (!data.items) return;
+        const drives = data.items.filter(i => i.type === 'drive');
+        const currentDrive = currentPath ? currentPath.slice(0, 2).toUpperCase() : '';
+        bar.innerHTML = drives.map(d => {
+          const active = d.name.toUpperCase() === currentDrive ? ' active' : '';
+          return `<span class="drive-chip${active}" onclick="loadFiles('${escapeAttr(d.path)}')">${d.name}</span>`;
+        }).join('');
+      } catch (e) {}
+    }
+
+    // 人性化时间
+    function timeAgo(isoStr) {
+      const diff = Date.now() - new Date(isoStr).getTime();
+      const mins = Math.floor(diff / 60000);
+      if (mins < 1) return '刚刚';
+      if (mins < 60) return mins + '分钟前';
+      const hrs = Math.floor(mins / 60);
+      if (hrs < 24) return hrs + '小时前';
+      const days = Math.floor(hrs / 24);
+      if (days < 30) return days + '天前';
+      const months = Math.floor(days / 30);
+      if (months < 12) return months + '个月前';
+      return Math.floor(months / 12) + '年前';
+    }
+
+    function selectCurrentDir() {
+      if (currentBrowsePath === 'DRIVES') {
+        alert('请先进入一个具体目录再选择');
+        return;
+      }
+      document.getElementById('workdir').value = currentBrowsePath;
+      closeFileBrowser();
+    }
+
+    function formatSize(bytes) {
+      if (bytes == null) return '';
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+      if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + ' MB';
+      return (bytes / 1073741824).toFixed(2) + ' GB';
+    }
+
+    function escapeAttr(text) {
+      return text.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    }
+
+    // ========== 执行命令 ==========
+    async function runCommand() {
+      let prompt = document.getElementById('prompt').value.trim();
+      const workdir = document.getElementById('workdir').value.trim();
+      const output = document.getElementById('output');
+      if (!prompt || isRunning) return;
+
+      // 极速模式：自动拼接后缀
+      if (document.getElementById('speedMode').checked) {
+        prompt += ' (请直接、单步给出最终结果，不要调用多余的工具，不要反复测试)';
+      }
+
+      output.innerHTML = '';
+      document.getElementById('btnCopy').style.display = 'none';
+      setStatus('执行中...', true);
+
+      try {
+        const res = await fetch('/api/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-token': token },
+          body: JSON.stringify({ prompt, workdir })
+        });
+
+        if (!res.ok) {
+          const err = await res.json();
+          output.innerHTML = `<span class="err">错误: ${err.error}</span>`;
+          setStatus('等待指令...', false);
+          return;
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const msg = JSON.parse(line.slice(6));
+              let text = msg.text || '';
+              if (text.includes("Warning: no stdin data received in 3s")) {
+                text = text.replace(/.*Warning: no stdin data received in 3s.*\n?/g, '');
+              }
+              if (text) {
+                if (msg.type === 'out') output.innerHTML += escapeHtml(text);
+                if (msg.type === 'err') output.innerHTML += `<span class="err">${escapeHtml(text)}</span>`;
+              }
+              if (msg.type === 'done') output.innerHTML += `\n<span class="done">完成（退出码 ${msg.code}）</span>`;
+              output.scrollTop = output.scrollHeight;
+            } catch (e) {}
+          }
+        }
+      } catch (e) {
+        output.innerHTML += `\n<span class="err">连接异常: ${e.message}</span>`;
+      }
+      setStatus('等待指令...', false);
+    }
+
+    // 停止命令
+    async function stopCommand() {
+      try {
+        await fetch('/api/stop', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-token': token }
+        });
+      } catch (e) {}
+    }
+
+    // ========== 对话历史 ==========
+    async function loadHistoryList() {
+      const list = document.getElementById('hisList');
+      list.innerHTML = '<div class="list-loading">加载中...</div>';
+      showHisList();
+      try {
+        const res = await fetch('/api/history', { headers: { 'x-token': token } });
+        const data = await res.json();
+        if (!data.history || data.history.length === 0) {
+          list.innerHTML = '<div class="list-loading">暂无历史记录</div>';
+          return;
+        }
+        list.innerHTML = data.history.map(h => {
+          const date = new Date(h.time).toLocaleString('zh-CN');
+          const preview = h.prompt.length > 40 ? h.prompt.slice(0, 40) + '...' : h.prompt;
+          return `<div class="list-item" onclick="loadHisDetail('${h.id}')">
+            <button class="btn-delete" onclick="event.stopPropagation();deleteHistory('${h.id}')">删除</button>
+            <div class="item-title">${escapeHtml(preview)}</div>
+            <div class="item-sub">${date}</div>
+          </div>`;
+        }).join('');
+      } catch (e) {
+        list.innerHTML = `<div class="list-loading">加载失败: ${escapeHtml(e.message)}</div>`;
+      }
+    }
+
+    async function loadHisDetail(id) {
+      document.getElementById('hisListView').style.display = 'none';
+      document.getElementById('hisDetailView').style.display = 'block';
+      document.getElementById('hisContent').textContent = '加载中...';
+      try {
+        const res = await fetch(`/api/history/${id}`, { headers: { 'x-token': token } });
+        const data = await res.json();
+        currentHisItem = data;
+        document.getElementById('hisDetailPrompt').textContent = '指令: ' + data.prompt;
+        let outputText = data.output || '无输出';
+        if (outputText.includes("Warning: no stdin data received in 3s")) {
+          outputText = outputText.replace(/.*Warning: no stdin data received in 3s.*\n?/g, '');
+        }
+        document.getElementById('hisContent').textContent = outputText;
+      } catch (e) {
+        document.getElementById('hisContent').textContent = '加载失败: ' + e.message;
+      }
+    }
+
+    async function deleteHistory(id) {
+      try {
+        await fetch(`/api/history/${id}`, {
+          method: 'DELETE',
+          headers: { 'x-token': token }
+        });
+        loadHistoryList();
+      } catch (e) {}
+    }
+
+    function reuseCommand() {
+      if (!currentHisItem) return;
+      document.getElementById('prompt').value = currentHisItem.prompt;
+      document.getElementById('workdir').value = currentHisItem.workdir || '';
+      switchTab('cmd');
+    }
+
+    function showHisList() {
+      document.getElementById('hisListView').style.display = 'block';
+      document.getElementById('hisDetailView').style.display = 'none';
+    }
+
+    // ========== 记忆 ==========
+    async function loadMemoryList() {
+      const list = document.getElementById('memList');
+      list.innerHTML = '<div class="list-loading">加载中...</div>';
+      showMemList();
+      try {
+        const res = await fetch('/api/memory', { headers: { 'x-token': token } });
+        const data = await res.json();
+        if (!data.files || data.files.length === 0) {
+          list.innerHTML = '<div class="list-loading">暂无记忆文件</div>';
+          return;
+        }
+        list.innerHTML = data.files.map(f => {
+          const name = f.name.replace('.md', '').replace(/_/g, ' ');
+          const date = new Date(f.mtime).toLocaleDateString('zh-CN');
+          return `<div class="list-item" onclick="loadMemContent('${f.name}')">
+            <div class="item-title">${escapeHtml(name)}</div>
+            <div class="item-sub">${date}</div>
+          </div>`;
+        }).join('');
+      } catch (e) {
+        list.innerHTML = `<div class="list-loading">加载失败: ${escapeHtml(e.message)}</div>`;
+      }
+    }
+
+    async function loadMemContent(filename) {
+      document.getElementById('memListView').style.display = 'none';
+      document.getElementById('memDetailView').style.display = 'block';
+      document.getElementById('memFileName').textContent = filename;
+      document.getElementById('memContent').textContent = '加载中...';
+      try {
+        const res = await fetch(`/api/memory/${encodeURIComponent(filename)}`, {
+          headers: { 'x-token': token }
+        });
+        const data = await res.json();
+        document.getElementById('memContent').textContent = data.content || '内容为空';
+      } catch (e) {
+        document.getElementById('memContent').textContent = '加载失败: ' + e.message;
+      }
+    }
+
+    function showMemList() {
+      document.getElementById('memListView').style.display = 'block';
+      document.getElementById('memDetailView').style.display = 'none';
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // ========== 复制路径 ==========
+    async function copyFilePath(p) {
+      try { await navigator.clipboard.writeText(p); } catch (e) {
+        const ta = document.createElement('textarea'); ta.value = p;
+        document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+    }
+
+    // ========== 复制输出 ==========
+    async function copyOutput() {
+      const text = document.getElementById('output').textContent;
+      if (!text) return;
+      const btn = document.getElementById('btnCopy');
+      try {
+        await navigator.clipboard.writeText(text);
+        btn.textContent = '✅ 已复制';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = '📋 复制'; btn.classList.remove('copied'); }, 1500);
+      } catch (e) {
+        // fallback
+        const ta = document.createElement('textarea');
+        ta.value = text; document.body.appendChild(ta);
+        ta.select(); document.execCommand('copy');
+        document.body.removeChild(ta);
+        btn.textContent = '✅ 已复制';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = '📋 复制'; btn.classList.remove('copied'); }, 1500);
+      }
+    }
+
+    // 设为工作区
+    function setAsWorkspace(dirPath) {
+      document.getElementById('workdir').value = dirPath;
+      closeFileBrowser();
+      switchTab('cmd');
+      // 短暂高亮输入框
+      const input = document.getElementById('workdir');
+      input.style.borderColor = '#86efac';
+      input.style.boxShadow = '0 0 8px rgba(134, 239, 172, 0.3)';
+      setTimeout(() => {
+        input.style.borderColor = '';
+        input.style.boxShadow = '';
+      }, 1500);
+    }
+
+    // Ctrl+Enter 发送
+    document.getElementById('prompt').addEventListener('keydown', e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        runCommand();
+      }
+    });
+  </script>
+</body>
+</html>
