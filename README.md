@@ -1,6 +1,15 @@
 # Claude Code 远程控制
 
-通过手机或任何设备远程控制电脑上的 Claude Code，随时随地让 AI 帮你写代码。
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Node.js Version](https://img.shields.io/badge/Node.js-14+-brightgreen.svg)](https://nodejs.org/)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
+[![GitHub Stars](https://img.shields.io/github/stars/lihuiyu301-alt/claude-remote?style=social)](https://github.com/lihuiyu301-alt/claude-remote/stargazers)
+
+> 通过手机或任何设备远程控制电脑上的 Claude Code，随时随地让 AI 帮你写代码。
+
+<p align="center">
+  <img src="https://via.placeholder.com/800x400?text=Claude+Code+Remote+Control" alt="Claude Code Remote Control" width="100%">
+</p>
 
 ## ✨ 功能特性
 
